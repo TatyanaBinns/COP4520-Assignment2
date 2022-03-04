@@ -1,4 +1,4 @@
-# COP4520 Assignment1
+# COP4520 Assignment2
 
 ## Usage
 To compile and run, first ensure you have a properly setup and installed JDK with access to the `javac` and `java` commands. Then:
