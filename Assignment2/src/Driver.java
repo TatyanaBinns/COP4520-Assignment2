@@ -1,8 +1,10 @@
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -11,15 +13,17 @@ public class Driver {
 
 		Consumer<String> output = s -> System.out.println(Thread.currentThread().getName() + ": " + s);
 
+		System.out.println("===Problem 1===");
 		problemOne(output);
 
+		System.out.println("\n\n===Problem 2===");
 		problemTwo(output);
 	}
 
 	public abstract static class Guest {
 		private Runnable whenCalled;
-		private Thread thread;
-		private boolean running = true;
+		protected Thread thread;
+		protected boolean running = true;
 		private String name;
 
 		public Guest(String name) {
@@ -32,23 +36,7 @@ public class Driver {
 
 		protected abstract void whenCalled();
 
-		protected void start() {
-			Thread mainThread = Thread.currentThread();
-			this.thread = new Thread(() -> {
-				while (true) {
-					try {
-						Thread.sleep(999999);
-					} catch (InterruptedException e) {
-						// Thread.interrupted();
-					}
-					if (!this.running)
-						break;
-					this.whenCalled();
-					mainThread.interrupt();
-				}
-			}, this.name);
-			this.thread.start();
-		}
+		protected abstract void start();
 
 		public void call() {
 			this.thread.interrupt();
@@ -57,6 +45,52 @@ public class Driver {
 		public void leaveParty() {
 			this.running = false;
 			this.thread.interrupt();
+		}
+	}
+
+	public static class P2Guest extends Guest {
+		private Consumer<P2Guest> action;
+
+		public P2Guest(Consumer<P2Guest> action, String name) {
+			super(name);
+			this.action = action;
+			this.start();
+		}
+
+		private boolean seenVase = false;
+
+		public boolean seenVase() {
+			return this.seenVase;
+		}
+
+		public void await() {
+			try {
+				this.thread.join();
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+		}
+
+		public void seeVase() {
+			this.seenVase = true;
+		}
+
+		@Override
+		protected void whenCalled() {
+			this.action.accept(this);
+		}
+
+		@Override
+		public String toString() {
+			return this.name() + " [seenVase=" + seenVase + "]";
+		}
+
+		@Override
+		protected void start() {
+			this.thread = new Thread(() -> {
+				this.action.accept(this);
+			}, this.name());
+			this.thread.start();
 		}
 	}
 
@@ -87,10 +121,64 @@ public class Driver {
 		public String toString() {
 			return this.name() + " [eatenCupcake=" + eatenCupcake + "]";
 		}
+
+		@Override
+		protected void start() {
+			Thread mainThread = Thread.currentThread();
+			this.thread = new Thread(() -> {
+				while (true) {
+					try {
+						Thread.sleep(999999);
+					} catch (InterruptedException e) {
+						// Thread.interrupted();
+					}
+					if (!this.running)
+						break;
+					this.whenCalled();
+					mainThread.interrupt();
+				}
+			}, this.name());
+			this.thread.start();
+		}
 	}
 
 	private static void problemTwo(Consumer<String> output) {
 
+		AtomicReference<P2Guest> viewer = new AtomicReference<>(null);
+
+		List<P2Guest> guests = createGuests(name -> new P2Guest(g -> {
+			while (!g.seenVase())
+				try {
+					/*
+					 * Randomly mill around before going to see the vase
+					 */
+					Thread.sleep(ThreadLocalRandom.current().nextLong(100));
+					/*
+					 * Try to see the vase, if we managed, look awhile
+					 */
+					output.accept("Attempting to see the vase");
+					if (viewer.compareAndSet(null, g)) {
+						output.accept("Looking at the vase");
+						g.seeVase();
+						/*
+						 * Get a good look
+						 */
+						Thread.sleep(ThreadLocalRandom.current().nextLong(100));
+						/*
+						 * Leave the room, and unlock the door
+						 */
+						viewer.compareAndSet(g, null);
+						output.accept("Content with the viewing experience");
+					}
+				} catch (InterruptedException e) {
+					// Ignore extra sleeps
+				}
+		}, name), 10);
+
+		guests.forEach(P2Guest::await);
+		output.accept("Party over! Status of each guest:");
+		for (Guest g : guests)
+			output.accept(g.toString());
 	}
 
 	private static void problemOne(Consumer<String> output) {
@@ -132,7 +220,6 @@ public class Driver {
 		/*
 		 * At this point, all guests are waiting to be called into the maze
 		 */
-
 		while (!partyOver.get()) {
 			// Let a random guest through the maze
 			int guest = rnd.nextInt(guests.size());
@@ -152,8 +239,8 @@ public class Driver {
 		guests.forEach(Guest::leaveParty);
 	}
 
-	private static List<Guest> createGuests(Function<String, Guest> src, int count) {
-		List<Guest> guests = new ArrayList<>(count);
+	private static <T extends Guest> List<T> createGuests(Function<String, T> src, int count) {
+		List<T> guests = new ArrayList<>(count);
 		for (int i = 0; i < count; i++)
 			guests.add(src.apply("Guest " + (i + 1)));
 		return guests;
