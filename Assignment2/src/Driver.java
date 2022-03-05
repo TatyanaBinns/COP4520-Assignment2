@@ -8,20 +8,46 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+/**
+ * Main class for the assignment. Compile and run this to run the application.
+ * 
+ * @author Tatyana Binns
+ */
 public class Driver {
+	/**
+	 * Entry point to the program
+	 * 
+	 * @param args
+	 */
 	public static void main(String[] args) {
 
+		/**
+		 * Simple output handler, uses the thread name for pretty printing later
+		 */
 		Consumer<String> output = s -> System.out.println(Thread.currentThread().getName() + ": " + s);
 
+		/**
+		 * Runs the first problem example. Uses the simple method of Guest-0 counting
+		 * using the cupcake as a flag.
+		 */
 		System.out.println("===Problem 1===");
 		problemOne(output);
 
+		/**
+		 * Uses the 'lock-free' method of handling it. Each guest tries to get in, and
+		 * if they don't succeed, tries again. Each guest will go back in and try to
+		 * look again if
+		 */
 		System.out.println("\n\n===Problem 2===");
 		problemTwo(output);
 	}
 
+	/**
+	 * Wrapper class that holds various fields that all guests need.
+	 * 
+	 * @author Tatyana Binns
+	 */
 	public abstract static class Guest {
-		private Runnable whenCalled;
 		protected Thread thread;
 		protected boolean running = true;
 		private String name;
@@ -48,6 +74,9 @@ public class Driver {
 		}
 	}
 
+	/**
+	 * Implementation of Guest for Problem 2
+	 */
 	public static class P2Guest extends Guest {
 		private Consumer<P2Guest> action;
 
@@ -63,11 +92,19 @@ public class Driver {
 			return this.seenVase;
 		}
 
+		/**
+		 * Loops as long as this guest hasn't seen the vase. Sleeps for 10ms at a time
+		 * until this happens.
+		 */
 		public void await() {
-			try {
-				this.thread.join();
-			} catch (InterruptedException e) {
-				e.printStackTrace();
+			while (true) {
+				try {
+					Thread.sleep(10);
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+				if (this.seenVase())
+					break;
 			}
 		}
 
@@ -88,12 +125,16 @@ public class Driver {
 		@Override
 		protected void start() {
 			this.thread = new Thread(() -> {
-				this.action.accept(this);
+				while (this.running)
+					this.action.accept(this);
 			}, this.name());
 			this.thread.start();
 		}
 	}
 
+	/**
+	 * Implementation of Guest for Problem 1
+	 */
 	public static class P1Guest extends Guest {
 		private boolean eatenCupcake = false;
 		private Consumer<P1Guest> action;
@@ -123,6 +164,11 @@ public class Driver {
 		}
 
 		@Override
+		/**
+		 * Starts a thread that will call {@link #whenCalled()} whenever this thread is
+		 * interrupted, then interrupts the thread which started it in return. Used so
+		 * one can call back and forth.
+		 */
 		protected void start() {
 			Thread mainThread = Thread.currentThread();
 			this.thread = new Thread(() -> {
@@ -142,48 +188,53 @@ public class Driver {
 		}
 	}
 
+	/**
+	 * Simulation of Problem 2
+	 * 
+	 * @param output the function to call with text output
+	 */
 	private static void problemTwo(Consumer<String> output) {
 
 		AtomicReference<P2Guest> viewer = new AtomicReference<>(null);
 
 		List<P2Guest> guests = createGuests(name -> new P2Guest(g -> {
-			while (!g.seenVase())
-				try {
+			try {
+				/*
+				 * Try to see the vase, if we managed, look awhile
+				 */
+				if (viewer.compareAndSet(null, g)) {
+					output.accept("Looking at the vase");
+					g.seeVase();
 					/*
-					 * Randomly mill around before going to see the vase
+					 * Get a good look
 					 */
 					Thread.sleep(ThreadLocalRandom.current().nextLong(100));
 					/*
-					 * Try to see the vase, if we managed, look awhile
+					 * Leave the room, and unlock the door
 					 */
-					output.accept("Attempting to see the vase");
-					if (viewer.compareAndSet(null, g)) {
-						output.accept("Looking at the vase");
-						g.seeVase();
-						/*
-						 * Get a good look
-						 */
-						Thread.sleep(ThreadLocalRandom.current().nextLong(100));
-						/*
-						 * Leave the room, and unlock the door
-						 */
-						viewer.compareAndSet(g, null);
-						output.accept("Content with the viewing experience");
-					}
-				} catch (InterruptedException e) {
-					// Ignore extra sleeps
+					output.accept("Content with the viewing experience");
+					viewer.compareAndSet(g, null);
 				}
+			} catch (InterruptedException e) {
+				// Ignore extra sleeps
+			}
 		}, name), 10);
 
 		guests.forEach(P2Guest::await);
 		output.accept("Party over! Status of each guest:");
 		for (Guest g : guests)
 			output.accept(g.toString());
+
+		guests.forEach(Guest::leaveParty);
 	}
 
+	/**
+	 * Simulation of Problem 1
+	 * 
+	 * @param output the function to call with text output
+	 */
 	private static void problemOne(Consumer<String> output) {
 		Random rnd = new Random();
-		AtomicBoolean running = new AtomicBoolean(true);
 		AtomicBoolean partyOver = new AtomicBoolean(false);
 
 		AtomicBoolean cupcakePresent = new AtomicBoolean(true);
@@ -239,6 +290,14 @@ public class Driver {
 		guests.forEach(Guest::leaveParty);
 	}
 
+	/**
+	 * Simple helper function to make a list of guests
+	 * 
+	 * @param <T>   the particular type of guest
+	 * @param src   a function to create guests based on a name
+	 * @param count the number of guests to create
+	 * @return a list of the created guests
+	 */
 	private static <T extends Guest> List<T> createGuests(Function<String, T> src, int count) {
 		List<T> guests = new ArrayList<>(count);
 		for (int i = 0; i < count; i++)
