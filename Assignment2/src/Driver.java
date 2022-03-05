@@ -35,12 +35,14 @@ public class Driver {
 		protected void start() {
 			Thread mainThread = Thread.currentThread();
 			this.thread = new Thread(() -> {
-				while (this.running) {
+				while (true) {
 					try {
 						Thread.sleep(999999);
 					} catch (InterruptedException e) {
 						// Thread.interrupted();
 					}
+					if (!this.running)
+						break;
 					this.whenCalled();
 					mainThread.interrupt();
 				}
@@ -49,6 +51,11 @@ public class Driver {
 		}
 
 		public void call() {
+			this.thread.interrupt();
+		}
+
+		public void leaveParty() {
+			this.running = false;
 			this.thread.interrupt();
 		}
 	}
@@ -141,6 +148,8 @@ public class Driver {
 		output.accept("Party over! Status of each guest:");
 		for (Guest g : guests)
 			output.accept(g.toString());
+
+		guests.forEach(Guest::leaveParty);
 	}
 
 	private static List<Guest> createGuests(Function<String, Guest> src, int count) {
